@@ -122,21 +122,17 @@ function JobCard({ job, candidate }) {
 
         {tab === "description" && (
           <>
-            {job.short_summary && (
-              <div style={{ marginBottom: 16, padding: 16, background: "rgba(99,102,241,0.08)", borderRadius: 8, borderLeft: "4px solid var(--primary)" }}>
-                <h4 style={{ color: "var(--primary)", marginBottom: 8, fontSize: "0.9rem" }}>✨ AI Short Summary</h4>
-                <p style={{ color: "var(--text)", fontSize: "0.9rem", lineHeight: 1.5 }}>{job.short_summary}</p>
-              </div>
-            )}
-            
-            <details style={{ marginTop: 10 }}>
-              <summary style={{ cursor: "pointer", fontWeight: "bold", color: "var(--text)", padding: "10px 0", outline: "none" }}>
-                View Full Raw Job Description 👇
-              </summary>
-              <div style={{ marginTop: 10 }}>
+            <div style={{ marginBottom: 16 }}>
+              {job.formatted_description ? (
+                <FormattedJobDescription text={job.formatted_description} />
+              ) : (
                 <FormattedJobDescription text={job.content} />
-              </div>
-            </details>
+              )}
+            </div>
+            
+            <a className="job-link" href={job.url} target="_blank" rel="noreferrer" style={{ fontSize: "0.85rem", opacity: 0.8 }}>
+              View Original Source
+            </a>
           </>
         )}
 
