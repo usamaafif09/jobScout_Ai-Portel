@@ -111,15 +111,19 @@ def search_jobs(state: AgentState) -> dict:
                 query=f"job opening {query} apply now hiring 2025",
                 search_depth="advanced",
                 max_results=5,
+                include_raw_content=True
             )
             for r in results.get("results", []):
                 url = r.get("url", "")
                 if url not in seen:
                     seen.add(url)
+                    # Use full raw content if available, otherwise fallback to snippet
+                    full_text = r.get("raw_content") or r.get("content", "")
+                    
                     all_jobs.append({
                         "title": r.get("title", "Position"),
                         "url": url,
-                        "content": r.get("content", "")[:600],
+                        "content": full_text[:12000],  # Get up to 12,000 chars of the full site
                         "source": url.split("/")[2] if url else "Unknown",
                     })
         except Exception:

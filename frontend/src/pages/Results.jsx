@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
+import axios from "axios";
 import ScoreRing from "../components/ScoreRing";
 import InsightsSidebar from "../components/InsightsSidebar";
 
@@ -12,14 +13,33 @@ function getBadgeClass(label) {
   return "badge-weak";
 }
 
-function JobCard({ job }) {
+function JobCard({ job, candidate }) {
   const [tab, setTab] = useState("reason");
+  const [applyState, setApplyState] = useState("idle"); // idle, loading, done
+  const [applyPacket, setApplyPacket] = useState("");
+
   const tabs = [
     { id: "reason",    label: "🎯 Match Reason" },
+    { id: "description",label: "📄 Job Description" },
     { id: "cover",     label: "✉️ Cover Letter" },
     { id: "interview", label: "🎤 Interview Tips" },
     { id: "skills",    label: "🧩 Skills Gap" },
   ];
+
+  const handleAutoApply = async () => {
+    setApplyState("loading");
+    try {
+      const resp = await axios.post("http://localhost:8000/auto-apply", {
+        candidate,
+        job
+      });
+      setApplyPacket(resp.data.application_packet);
+      setApplyState("done");
+    } catch (err) {
+      alert("Auto Apply failed. Backend may be offline.");
+      setApplyState("idle");
+    }
+  };
 
   return (
     <div className="job-card">
@@ -64,9 +84,15 @@ function JobCard({ job }) {
             {job.why_not && (
               <p style={{ color: "var(--muted)", marginTop: 8 }}>⚠️ {job.why_not}</p>
             )}
-            <a className="job-link" href={job.url} target="_blank" rel="noreferrer">
-              View Job Posting ↗
-            </a>
+          </>
+        )}
+
+        {tab === "description" && (
+          <>
+            <h4>Full Job Description & Requirements</h4>
+            <div style={{ whiteSpace: "pre-wrap", color: "var(--muted)", fontSize: ".85rem", background: "var(--surface)", padding: 16, borderRadius: 8, maxHeight: 400, overflowY: "auto", border: "1px solid var(--border)" }}>
+              {job.content || "Description not available."}
+            </div>
           </>
         )}
 
@@ -114,6 +140,55 @@ function JobCard({ job }) {
           </>
         )}
       </div>
+
+      {/* Global Auto Apply Section (Always Visible) */}
+      <div style={{ marginTop: "auto", borderTop: "1px solid var(--border)", paddingTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+        {applyState === "idle" && (
+          <div style={{ display: "flex", gap: 12 }}>
+            <button 
+              className="btn-primary" 
+              onClick={handleAutoApply} 
+              style={{ padding: "12px 20px", fontSize: "1rem", borderRadius: 8, margin: 0, flex: 1, fontWeight: "bold" }}
+            >
+              ✨ One-Click AI Apply
+            </button>
+            <a 
+              className="job-link" 
+              href={job.url} 
+              target="_blank" 
+              rel="noreferrer" 
+              style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text)", padding: "12px 20px", borderRadius: 8, textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 500 }}
+            >
+              ↗ View Original
+            </a>
+          </div>
+        )}
+
+        {applyState !== "idle" && (
+          <div style={{ padding: 20, background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 10 }}>
+            {applyState === "loading" ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, color: "var(--green)" }}>
+                <span className="loading-brain" style={{ fontSize: "1.5rem", animationDuration: "1s" }}>🤖</span>
+                <div>
+                  <strong>AI is submitting application...</strong>
+                  <p style={{ fontSize: ".8rem", opacity: .8 }}>Processing profile and sending to {job.source}</p>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <h4 style={{ color: "var(--green)", marginBottom: 12 }}>✅ Application Successfully Sent!</h4>
+                <p style={{ fontSize: ".8rem", color: "var(--muted)", marginBottom: 12 }}>
+                  Your profile and custom cover letter have been submitted directly through JobScout AI.
+                </p>
+                <div className="cover-letter-box" style={{ whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: ".8rem", background: "rgba(0,0,0,0.3)" }}>
+                  {applyPacket}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
@@ -210,7 +285,7 @@ export default function Results() {
             {filtered.length === 0 ? (
               <p style={{ color: "var(--muted)", padding: 20 }}>No jobs match this filter.</p>
             ) : (
-              filtered.map((job, i) => <JobCard key={i} job={job} />)
+              filtered.map((job, i) => <JobCard key={i} job={job} candidate={candidate} />)
             )}
           </div>
         </div>
