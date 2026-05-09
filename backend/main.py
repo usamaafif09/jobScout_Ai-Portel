@@ -2,10 +2,8 @@ import asyncio
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from cv_parser import parse_cv
-from agent import run_agent, llm
-from langchain_core.messages import HumanMessage
+from agent import run_agent
 
 ALLOWED_EXTENSIONS = {
     ".pdf", ".doc", ".docx",
@@ -20,10 +18,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-class AutoApplyRequest(BaseModel):
-    candidate: dict
-    job: dict
 
 SAMPLE_CV = """
 John Ahmed
@@ -114,30 +108,3 @@ async def analyze_sample():
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
-
-@app.post("/auto-apply")
-async def auto_apply(req: AutoApplyRequest):
-    """Simulate AI applying to a job with the candidate's profile."""
-    prompt = f"""You are an autonomous AI Agent applying for a job on behalf of the candidate.
-Draft the final application email/submission packet that will be sent to the employer.
-
-Candidate Profile: {req.candidate}
-Job Details: {req.job.get('title')} at {req.job.get('source')}
-
-Write a highly professional, persuasive email applying for this specific role. Include:
-1. Subject line
-2. A tailored greeting
-3. A strong opening statement
-4. 2-3 bullet points highlighting EXACTLY how the candidate's skills meet the job requirements
-5. A confident closing
-
-Make it sound like the candidate wrote it. Do not include placeholders like [Your Name], use the real data.
-"""
-    try:
-        response = await asyncio.to_thread(lambda: llm.invoke([HumanMessage(content=prompt)]))
-        return JSONResponse(content={
-            "success": True,
-            "application_packet": response.content
-        })
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Apply error: {str(e)}")
