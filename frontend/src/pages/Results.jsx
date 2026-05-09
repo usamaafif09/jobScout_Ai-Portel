@@ -13,6 +13,39 @@ function getBadgeClass(label) {
   return "badge-weak";
 }
 
+function FormattedJobDescription({ text }) {
+  if (!text) return <p style={{ color: "var(--muted)" }}>Description not available.</p>;
+
+  // Split by newline, remove excessive empty lines
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l !== '');
+
+  return (
+    <div style={{ background: "var(--surface)", padding: "20px", borderRadius: 8, maxHeight: 400, overflowY: "auto", border: "1px solid var(--border)", fontSize: "0.9rem" }}>
+      {lines.map((line, i) => {
+        // Heading detection (short line ending with colon, or uppercase short line, or markdown hash)
+        if (line.startsWith('#')) {
+          const content = line.replace(/^#+\s*/, '');
+          return <h4 key={i} style={{ color: 'var(--text)', marginTop: 16, marginBottom: 8 }}>{content}</h4>;
+        }
+        if (line.length < 50 && (line.endsWith(':') || line === line.toUpperCase() && line.length > 3)) {
+          return <h5 key={i} style={{ color: 'var(--text)', marginTop: 16, marginBottom: 8, fontSize: "1rem" }}>{line}</h5>;
+        }
+        // Bullet point detection
+        if (line.startsWith('- ') || line.startsWith('• ') || line.startsWith('* ')) {
+          return (
+            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6, marginLeft: 16, color: 'var(--muted)', lineHeight: 1.5 }}>
+              <span style={{ color: 'var(--primary)' }}>•</span> 
+              <span>{line.substring(2).trim()}</span>
+            </div>
+          );
+        }
+        // Normal paragraph
+        return <p key={i} style={{ color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>{line}</p>;
+      })}
+    </div>
+  );
+}
+
 function JobCard({ job, candidate }) {
   const [tab, setTab] = useState("reason");
   const [applyState, setApplyState] = useState("idle"); // idle, loading, done
@@ -89,10 +122,8 @@ function JobCard({ job, candidate }) {
 
         {tab === "description" && (
           <>
-            <h4>Full Job Description & Requirements</h4>
-            <div style={{ whiteSpace: "pre-wrap", color: "var(--muted)", fontSize: ".85rem", background: "var(--surface)", padding: 16, borderRadius: 8, maxHeight: 400, overflowY: "auto", border: "1px solid var(--border)" }}>
-              {job.content || "Description not available."}
-            </div>
+            <h4 style={{ marginBottom: 12 }}>Full Job Description & Requirements</h4>
+            <FormattedJobDescription text={job.content} />
           </>
         )}
 
