@@ -141,7 +141,7 @@ def evaluate_jobs(state: AgentState) -> dict:
   "match_label": "Strong Match",
   "why_good": "2-3 sentence explanation of why this is a good match",
   "why_not": "1-2 sentence on gaps or concerns",
-  "formatted_description": "A clean, well-structured markdown summary of the job. Include sections: '### About the Role', '### Key Responsibilities' (bullet points), and '### Requirements' (bullet points).",
+  "formatted_description": "A well-written 2-3 paragraph summary of the job description. IMPORTANT: Ignore all search filters, website menus, and sidebars. Extract ONLY the actual job role, requirements, and responsibilities.",
   "key_requirements": ["req1", "req2", "req3"],
   "candidate_meets": ["met_skill1", "met_skill2"],
   "candidate_missing": ["missing1", "missing2"],
@@ -154,7 +154,7 @@ match_label must be one of: Strong Match, Good Match, Partial Match, Weak Match
 
 Candidate: {json.dumps(profile, indent=2)}
 Job Title: {job['title']}
-Job Content: {job['content'][:3000]}
+Job Content: {job['content'][:8000]}
 """
         try:
             resp = llm.invoke([HumanMessage(content=prompt)])
