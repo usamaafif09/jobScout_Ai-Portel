@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from cv_parser import parse_cv
-from cv_parser import parse_cv
 from agent import run_agent, llm, evaluate_job_list
 from langchain_core.messages import HumanMessage
 
@@ -29,6 +28,11 @@ class AutoApplyRequest(BaseModel):
 class EvaluateBatchRequest(BaseModel):
     candidate: dict
     jobs: list
+
+class SearchMoreRequest(BaseModel):
+    candidate: dict
+    existing_urls: list
+    page: int = 1
 
 SAMPLE_CV = """
 John Ahmed
@@ -144,7 +148,8 @@ Make it sound like the candidate wrote it. Do not include placeholders like [You
         response = await asyncio.to_thread(lambda: llm.invoke([HumanMessage(content=prompt)]))
         return JSONResponse(content={
             "success": True,
-            "application_packet": response.content
+            "application_packet": response.content,
+            "job_url": req.job.get("url", "")
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Apply error: {str(e)}")
@@ -160,3 +165,74 @@ async def evaluate_batch(req: EvaluateBatchRequest):
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Batch evaluate error: {str(e)}")
+
+
+@app.post("/search-more")
+async def search_more(req: SearchMoreRequest):
+    """Search for additional job listings beyond the initial set."""
+    from agent import tavily
+    import json
+    p = req.candidate
+    role = p.get("current_role", "software engineer")
+    skills = p.get("skills", [])[:3]
+    location = p.get("location", "")
+    page = req.page
+
+    # Build varied queries for the extra search
+    extra_queries = [
+        f"site:linkedin.com/jobs/view/ {role} {location}",
+        f"site:indeed.com/viewjob {role} {location}",
+        f"{role} hiring 2025 {location} apply now",
+        f"{' '.join(skills)} developer jobs {location} 2025",
+        f"{role} remote vacancies 2025",
+    ]
+
+    existing_urls = set(req.existing_urls)
+    new_jobs = []
+    seen = set(existing_urls)
+
+    try:
+        for query in extra_queries:
+            results = tavily.search(
+                query=query,
+                search_depth="advanced",
+                max_results=10,
+                include_raw_content=True
+            )
+            for r in results.get("results", []):
+                url = r.get("url", "")
+                if url and url not in seen:
+                    seen.add(url)
+                    full_text = r.get("raw_content") or r.get("content", "")
+                    new_jobs.append({
+                        "title": r.get("title", "Position"),
+                        "url": url,
+                        "content": full_text[:12000],
+                        "source": url.split("/")[2] if url else "Unknown",
+                    })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+
+    if not new_jobs:
+        return JSONResponse(content={"success": True, "evaluated_jobs": [], "message": "No new jobs found"})
+
+    # Evaluate the new jobs
+    try:
+        evaluated = []
+        for i in range(0, len(new_jobs), 5):
+            batch = new_jobs[i:i+5]
+            res = await asyncio.to_thread(evaluate_job_list, req.candidate, batch)
+            if res:
+                evaluated.extend(res)
+                
+        high_acc = [j for j in evaluated if j.get("match_score", 0) > 70]
+        high_acc.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+        final_jobs = high_acc if len(high_acc) > 0 else evaluated
+        
+        return JSONResponse(content={
+            "success": True,
+            "evaluated_jobs": final_jobs,
+            "raw_count": len(new_jobs)
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Evaluate error: {str(e)}")

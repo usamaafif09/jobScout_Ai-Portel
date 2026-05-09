@@ -3,6 +3,7 @@ import { useState } from "react";
 import axios from "axios";
 import ScoreRing from "../components/ScoreRing";
 import InsightsSidebar from "../components/InsightsSidebar";
+import API_BASE_URL from "../api";
 
 function getBadgeClass(label) {
   if (!label) return "badge-partial";
@@ -61,8 +62,12 @@ function JobCard({ job, candidate }) {
 
   const handleAutoApply = async () => {
     setApplyState("loading");
+    // Immediately open the job URL so user lands on the application page
+    if (job.url) {
+      window.open(job.url, "_blank", "noopener,noreferrer");
+    }
     try {
-      const resp = await axios.post("http://localhost:8000/auto-apply", {
+      const resp = await axios.post(`${API_BASE_URL}/auto-apply`, {
         candidate,
         job
       });
@@ -184,13 +189,13 @@ function JobCard({ job, candidate }) {
       {/* Global Auto Apply Section (Always Visible) */}
       <div style={{ marginTop: "auto", borderTop: "1px solid var(--border)", paddingTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
         {applyState === "idle" && (
-          <div style={{ display: "flex", gap: 12 }}>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <button 
               className="btn-primary" 
               onClick={handleAutoApply} 
               style={{ padding: "12px 20px", fontSize: "1rem", borderRadius: 8, margin: 0, flex: 1, fontWeight: "bold" }}
             >
-              ✨ One-Click AI Apply
+              ✨ AI Apply (Opens Site + Draft)
             </button>
             <a 
               className="job-link" 
@@ -199,7 +204,7 @@ function JobCard({ job, candidate }) {
               rel="noreferrer" 
               style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text)", padding: "12px 20px", borderRadius: 8, textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 500 }}
             >
-              ↗ View Original
+              ↗ Apply on Site
             </a>
           </div>
         )}
@@ -210,18 +215,39 @@ function JobCard({ job, candidate }) {
               <div style={{ display: "flex", alignItems: "center", gap: 12, color: "var(--green)" }}>
                 <span className="loading-brain" style={{ fontSize: "1.5rem", animationDuration: "1s" }}>🤖</span>
                 <div>
-                  <strong>AI is submitting application...</strong>
-                  <p style={{ fontSize: ".8rem", opacity: .8 }}>Processing profile and sending to {job.source}</p>
+                  <strong>Job site opened! AI is drafting your application...</strong>
+                  <p style={{ fontSize: ".8rem", opacity: .8 }}>Use the email draft below to apply on {job.source}</p>
                 </div>
               </div>
             ) : (
               <div>
-                <h4 style={{ color: "var(--green)", marginBottom: 12 }}>✅ Application Successfully Sent!</h4>
-                <p style={{ fontSize: ".8rem", color: "var(--muted)", marginBottom: 12 }}>
-                  Your profile and custom cover letter have been submitted directly through JobScout AI.
+                <h4 style={{ color: "var(--green)", marginBottom: 8 }}>✅ Job site opened + Application Email Ready!</h4>
+                <p style={{ fontSize: ".82rem", color: "var(--cyan)", marginBottom: 4 }}>
+                  📋 Copy this email and paste it into the application form on <strong>{job.source}</strong>:
+                </p>
+                <p style={{ fontSize: ".75rem", color: "var(--muted)", marginBottom: 12 }}>
+                  The job site has been opened in a new tab. Paste the email below into the application form.
                 </p>
                 <div className="cover-letter-box" style={{ whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: ".8rem", background: "rgba(0,0,0,0.3)" }}>
                   {applyPacket}
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                  <button
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border)", background: "rgba(124,58,237,0.15)", color: "var(--purple-l)", cursor: "pointer", fontSize: ".82rem", fontWeight: 600 }}
+                    onClick={() => {
+                      navigator.clipboard.writeText(applyPacket);
+                    }}
+                  >
+                    📋 Copy to Clipboard
+                  </button>
+                  <a
+                    href={job.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--green)", background: "rgba(16,185,129,0.1)", color: "var(--green)", textDecoration: "none", fontSize: ".82rem", fontWeight: 600, display: "flex", alignItems: "center" }}
+                  >
+                    ↗ Re-open Job Site
+                  </a>
                 </div>
               </div>
             )}
@@ -253,7 +279,10 @@ export default function Results() {
   const { candidate, jobs: initialJobs = [], insights = {}, stats = {}, raw_jobs: initialRawJobs = [] } = data;
 
   const [allJobs, setAllJobs] = useState(initialJobs);
+  const [allRawUrls, setAllRawUrls] = useState(() => initialRawJobs.map(j => j.url));
   const [loadingMore, setLoadingMore] = useState(false);
+  const [searchMorePage, setSearchMorePage] = useState(1);
+  const [noMoreJobs, setNoMoreJobs] = useState(false);
 
   const filterMap = { all: null, strong: "Strong Match", good: "Good Match", partial: "Partial Match" };
   let filtered = allJobs.filter((j) =>
@@ -272,17 +301,46 @@ export default function Results() {
   );
 
   const handleLoadMore = async () => {
-    if (remainingRawJobs.length === 0) return;
     setLoadingMore(true);
-    // Take next 4 raw jobs to evaluate
-    const nextBatch = remainingRawJobs.slice(0, 4);
+
+    // Phase 1: try remaining raw jobs first
+    const remaining = initialRawJobs.filter(
+      (rj) => !allJobs.some((aj) => aj.url === rj.url)
+    );
+
+    if (remaining.length > 0) {
+      const nextBatch = remaining.slice(0, 4);
+      try {
+        const resp = await axios.post(`${API_BASE_URL}/evaluate-batch`, {
+          candidate,
+          jobs: nextBatch,
+        });
+        if (resp.data.success && resp.data.evaluated_jobs.length > 0) {
+          setAllJobs((prev) => [...prev, ...resp.data.evaluated_jobs]);
+          setLoadingMore(false);
+          return;
+        }
+      } catch (err) {
+        console.error("Batch eval failed", err);
+      }
+    }
+
+    // Phase 2: search for brand-new jobs via Tavily
     try {
-      const resp = await axios.post("http://localhost:8000/evaluate-batch", {
+      const currentUrls = allJobs.map(j => j.url);
+      const nextPage = searchMorePage + 1;
+      const resp = await axios.post(`${API_BASE_URL}/search-more`, {
         candidate,
-        jobs: nextBatch,
+        existing_urls: currentUrls,
+        page: nextPage,
       });
-      if (resp.data.success) {
+      if (resp.data.success && resp.data.evaluated_jobs.length > 0) {
         setAllJobs((prev) => [...prev, ...resp.data.evaluated_jobs]);
+        setSearchMorePage(nextPage);
+        // Update known URLs to avoid re-fetching
+        setAllRawUrls((prev) => [...prev, ...resp.data.evaluated_jobs.map(j => j.url)]);
+      } else {
+        setNoMoreJobs(true);
       }
     } catch (err) {
       alert("Could not load more jobs. Backend might be offline.");
@@ -319,7 +377,7 @@ export default function Results() {
         </div>
         <div className="stat-cards">
           <div className="stat-card">
-            <span className="stat-num gradient-text">{jobs.length}</span>
+            <span className="stat-num gradient-text">{allJobs.length}</span>
             <span className="stat-label">Jobs Found</span>
           </div>
           <div className="stat-card">
@@ -353,19 +411,27 @@ export default function Results() {
             {filtered.length === 0 ? (
               <p style={{ color: "var(--muted)", padding: 20 }}>No jobs match this filter.</p>
             ) : (
-              filtered.map((job, i) => <JobCard key={i} job={job} candidate={candidate} />)
+              filtered.map((job, i) => <JobCard key={job.url || i} job={job} candidate={candidate} />)
             )}
           </div>
 
-          {remainingRawJobs.length > 0 && (
+          {/* View More / Search More Button */}
+          {!noMoreJobs ? (
             <button 
               className="btn-primary" 
               onClick={handleLoadMore} 
               disabled={loadingMore} 
-              style={{ marginTop: 24, width: "100%", padding: 14, fontWeight: "bold", borderRadius: 8 }}
+              style={{ marginTop: 24, width: "100%", padding: 14, fontWeight: "bold", borderRadius: 8, fontSize: "1rem" }}
             >
-              {loadingMore ? "🤖 AI Evaluating Next Batch..." : `✨ Load More Related Jobs (${remainingRawJobs.length} left)`}
+              {loadingMore 
+                ? "🤖 AI Searching & Evaluating More Jobs..."
+                : `🔍 View More Related Jobs`
+              }
             </button>
+          ) : (
+            <div style={{ marginTop: 24, padding: 16, textAlign: "center", color: "var(--muted)", background: "var(--card)", borderRadius: 8, border: "1px solid var(--border)", fontSize: ".88rem" }}>
+              ✅ All available jobs have been loaded ({allJobs.length} total)
+            </div>
           )}
         </div>
 

@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from typing import TypedDict, List, Optional
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END, START
@@ -55,6 +56,23 @@ def safe_json_arr(text: str) -> list:
     except Exception:
         return []
 
+# ── Rate-limit-aware LLM call with retry ───────────────────────────────────────
+def llm_call(prompt: str, retries: int = 3) -> str:
+    """Call the LLM with automatic retry on rate limit errors."""
+    for attempt in range(retries):
+        try:
+            resp = llm.invoke([HumanMessage(content=prompt)])
+            return resp.content
+        except Exception as e:
+            err_str = str(e).lower()
+            if "rate_limit" in err_str or "429" in err_str or "too many" in err_str:
+                wait = (attempt + 1) * 5  # 5s, 10s, 15s backoff
+                print(f"⏳ Rate limited, waiting {wait}s before retry {attempt+1}/{retries}...")
+                time.sleep(wait)
+            else:
+                raise e
+    raise Exception("Rate limit exceeded after all retries")
+
 
 # ── Node 1: Extract candidate profile from CV ─────────────────────────────────
 def extract_profile(state: AgentState) -> dict:
@@ -77,40 +95,48 @@ Return ONLY valid JSON (no markdown, no explanation):
 CV:
 {state['cv_text'][:4000]}
 """
-    resp = llm.invoke([HumanMessage(content=prompt)])
-    profile = safe_json_obj(resp.content)
+    content = llm_call(prompt)
+    profile = safe_json_obj(content)
     if not profile:
         profile = {"name": "Candidate", "skills": [], "current_role": "Professional", "years_experience": 0}
+    time.sleep(2)  # Pace requests
     return {"candidate_profile": profile, "current_step": "profile_extracted"}
 
 
 # ── Node 2: Generate smart search queries ─────────────────────────────────────
 def generate_queries(state: AgentState) -> dict:
     p = state["candidate_profile"]
-    prompt = f"""Based on this candidate profile, generate 8 diverse real-time job search queries.
-Mix role titles, skills, and locations. Return ONLY a JSON array of strings.
+    prompt = f"""Based on this candidate profile, generate 12 diverse real-time job search queries.
+Aim for specific job postings rather than search result pages.
+Use patterns like:
+- "site:linkedin.com/jobs/view/ [job title] [location]"
+- "site:indeed.com/viewjob [job title] [location]"
+- "[job title] hiring 2025 [location] apply now"
 
 Profile: {json.dumps(p, indent=2)}
 
+Return ONLY a JSON array of strings.
 Return: ["query1", "query2", ...]
 """
-    resp = llm.invoke([HumanMessage(content=prompt)])
-    queries = safe_json_arr(resp.content)
+    content = llm_call(prompt)
+    queries = safe_json_arr(content)
     if not queries:
         role = p.get("current_role", "software engineer")
         queries = [f"{role} jobs 2025", f"{role} remote jobs", f"{role} Pakistan jobs"]
+    time.sleep(1)  # Pace requests
     return {"search_queries": queries, "current_step": "queries_generated"}
 
 
 # ── Node 3: Search real-time jobs via Tavily ──────────────────────────────────
 def search_jobs(state: AgentState) -> dict:
     all_jobs, seen = [], set()
-    for query in state["search_queries"][:8]:
+    # Use more queries for better coverage
+    for query in state["search_queries"][:12]:
         try:
             results = tavily.search(
-                query=f"job opening {query} apply now hiring 2025",
+                query=query,
                 search_depth="advanced",
-                max_results=5,
+                max_results=10,
                 include_raw_content=True
             )
             for r in results.get("results", []):
@@ -118,6 +144,37 @@ def search_jobs(state: AgentState) -> dict:
                 if url not in seen:
                     seen.add(url)
                     full_text = r.get("raw_content") or r.get("content", "")
+                    
+                    # ── List Unpacking Logic ──
+                    # If this result looks like a search page or a list of jobs, try to extract individual entries
+                    is_list = any(x in url.lower() for x in ["/jobs/search", "/jobs/index", "search_results", "q="]) or \
+                              any(x in r.get("title", "").lower() for x in ["70+", "results for", "job search"])
+                    
+                    if is_list and len(full_text) > 1000:
+                        unpack_prompt = f"""This text is a job search result page. 
+Extract EVERY SINGLE individual job posting from this list. Do not omit any.
+For each, provide: 'title' and 'url'. 
+Return ONLY a JSON array of objects: [{{"title": "...", "url": "..."}}, ...]
+Content snippet:
+{full_text[:12000]}
+"""
+                        try:
+                            # Use a faster/cheaper call if possible, or just regular llm_call
+                            unpacked_content = llm_call(unpack_prompt)
+                            unpacked_list = safe_json_arr(unpacked_content)
+                            for entry in unpacked_list:
+                                e_url = entry.get("url")
+                                if e_url and e_url not in seen:
+                                    seen.add(e_url)
+                                    all_jobs.append({
+                                        "title": entry.get("title", "Position"),
+                                        "url": e_url,
+                                        "content": f"Individual job listing found via {url}",
+                                        "source": e_url.split("/")[2] if "/" in e_url else "Unknown",
+                                    })
+                        except:
+                            pass # Fallback to just including the list page if unpacking fails
+
                     all_jobs.append({
                         "title": r.get("title", "Position"),
                         "url": url,
@@ -126,7 +183,8 @@ def search_jobs(state: AgentState) -> dict:
                     })
         except Exception:
             continue
-    return {"raw_jobs": all_jobs[:30], "current_step": "jobs_found"}
+    # Increase limit to allow "every single job"
+    return {"raw_jobs": all_jobs[:100], "current_step": "jobs_found"}
 
 
 # ── Node 4: Evaluate & score each job ────────────────────────────────────────
@@ -155,21 +213,37 @@ Job Title: {job['title']}
 Job Content: {job['content'][:8000]}
 """
         try:
-            resp = llm.invoke([HumanMessage(content=prompt)])
-            ev = safe_json_obj(resp.content)
+            content = llm_call(prompt)
+            ev = safe_json_obj(content)
             if ev and ev.get("match_score"):
                 evaluated.append({**job, **ev})
+            time.sleep(3)  # Pace between job evaluations
         except Exception:
+            time.sleep(3)
             continue
     evaluated.sort(key=lambda x: x.get("match_score", 0), reverse=True)
     return evaluated
 
 def evaluate_jobs(state: AgentState) -> dict:
     profile = state["candidate_profile"]
-    # Cap evaluation to 8 jobs initially to prevent Groq Rate Limits
-    jobs_to_eval = state["raw_jobs"][:8]
-    evaluated = evaluate_job_list(profile, jobs_to_eval)
-    return {"evaluated_jobs": evaluated, "current_step": "jobs_evaluated"}
+    evaluated = []
+    
+    # Process in batches to manage rate limits
+    # No artificial limits - process all found jobs
+    for i in range(0, len(state["raw_jobs"]), 5):
+        batch = state["raw_jobs"][i:i+5]
+        res = evaluate_job_list(profile, batch)
+        if res:
+            evaluated.extend(res)
+            
+    # Filter for > 70 accuracy (lowered slightly to show more results)
+    high_acc_jobs = [j for j in evaluated if j.get("match_score", 0) > 70]
+    high_acc_jobs.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+    
+    # Fallback to returning all if no jobs match the criteria, otherwise return filtered
+    final_jobs = high_acc_jobs if len(high_acc_jobs) > 0 else evaluated
+    
+    return {"evaluated_jobs": final_jobs, "current_step": "jobs_evaluated"}
 
 
 # ── Node 5: Generate career insights ─────────────────────────────────────────
@@ -205,8 +279,9 @@ Candidate: {json.dumps(profile, indent=2)}
 Common missing skills in market: {missing_skills}
 """
     try:
-        resp = llm.invoke([HumanMessage(content=prompt)])
-        insights = safe_json_obj(resp.content)
+        time.sleep(2)  # Pace requests
+        content = llm_call(prompt)
+        insights = safe_json_obj(content)
     except Exception:
         insights = {}
 
