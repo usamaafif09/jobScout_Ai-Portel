@@ -1,4 +1,6 @@
 import asyncio
+import sys
+import io
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -6,6 +8,11 @@ from pydantic import BaseModel
 from cv_parser import parse_cv
 from agent import run_agent, llm, evaluate_job_list
 from langchain_core.messages import HumanMessage
+
+# Force UTF-8 for Windows console
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 ALLOWED_EXTENSIONS = {
     ".pdf", ".doc", ".docx",
@@ -66,7 +73,7 @@ English (Fluent), Urdu (Native)
 
 @app.get("/")
 def root():
-    return {"status": "JobScout AI is running 🚀", "version": "1.0.0"}
+    return {"status": "JobScout AI is running", "version": "1.0.0"}
 
 
 @app.post("/analyze")

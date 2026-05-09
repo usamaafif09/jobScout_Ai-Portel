@@ -1,6 +1,8 @@
 import os
+import sys
 import json
 import time
+import io
 from typing import TypedDict, List, Optional
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END, START
@@ -8,9 +10,14 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 from tavily import TavilyClient
 
+# Force UTF-8 for Windows console to prevent 'charmap' errors
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 load_dotenv()
 
-# ── LLM & Search clients ─────────────────────────────────────────────────────
+# LLM & Search clients
 llm = ChatGroq(
     model="llama-3.3-70b-versatile",
     api_key=os.getenv("GROQ_API_KEY"),
@@ -19,7 +26,7 @@ llm = ChatGroq(
 tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 
-# ── Agent State ───────────────────────────────────────────────────────────────
+# Agent State
 class AgentState(TypedDict):
     cv_text: str
     candidate_profile: dict
@@ -31,7 +38,7 @@ class AgentState(TypedDict):
     error: Optional[str]
 
 
-# ── Helper: safe JSON parse ────────────────────────────────────────────────────
+# Helper: safe JSON parse
 def safe_json(text: str, fallback):
     try:
         start = text.find("{") if "{" in text else text.find("[")
@@ -56,7 +63,7 @@ def safe_json_arr(text: str) -> list:
     except Exception:
         return []
 
-# ── Rate-limit-aware LLM call with retry ───────────────────────────────────────
+# Rate-limit-aware LLM call with retry
 def llm_call(prompt: str, retries: int = 3) -> str:
     """Call the LLM with automatic retry on rate limit errors."""
     for attempt in range(retries):
@@ -74,7 +81,7 @@ def llm_call(prompt: str, retries: int = 3) -> str:
     raise Exception("Rate limit exceeded after all retries")
 
 
-# ── Node 1: Extract candidate profile from CV ─────────────────────────────────
+# Node 1: Extract candidate profile from CV
 def extract_profile(state: AgentState) -> dict:
     prompt = f"""You are an expert CV parser. Extract structured information from this CV.
 Return ONLY valid JSON (no markdown, no explanation):
@@ -103,7 +110,7 @@ CV:
     return {"candidate_profile": profile, "current_step": "profile_extracted"}
 
 
-# ── Node 2: Generate smart search queries ─────────────────────────────────────
+# Node 2: Generate smart search queries
 def generate_queries(state: AgentState) -> dict:
     p = state["candidate_profile"]
     prompt = f"""Based on this candidate profile, generate 12 diverse real-time job search queries.
@@ -127,7 +134,7 @@ Return: ["query1", "query2", ...]
     return {"search_queries": queries, "current_step": "queries_generated"}
 
 
-# ── Node 3: Search real-time jobs via Tavily ──────────────────────────────────
+# Node 3: Search real-time jobs via Tavily
 def search_jobs(state: AgentState) -> dict:
     all_jobs, seen = [], set()
     # Use more queries for better coverage
@@ -145,7 +152,7 @@ def search_jobs(state: AgentState) -> dict:
                     seen.add(url)
                     full_text = r.get("raw_content") or r.get("content", "")
                     
-                    # ── List Unpacking Logic ──
+                    # List Unpacking Logic
                     # If this result looks like a search page or a list of jobs, try to extract individual entries
                     is_list = any(x in url.lower() for x in ["/jobs/search", "/jobs/index", "search_results", "q="]) or \
                               any(x in r.get("title", "").lower() for x in ["70+", "results for", "job search"])
@@ -187,7 +194,7 @@ Content snippet:
     return {"raw_jobs": all_jobs[:100], "current_step": "jobs_found"}
 
 
-# ── Node 4: Evaluate & score each job ────────────────────────────────────────
+# Node 4: Evaluate & score each job
 def evaluate_job_list(profile: dict, jobs: list) -> list:
     evaluated = []
     for job in jobs:
@@ -246,7 +253,7 @@ def evaluate_jobs(state: AgentState) -> dict:
     return {"evaluated_jobs": final_jobs, "current_step": "jobs_evaluated"}
 
 
-# ── Node 5: Generate career insights ─────────────────────────────────────────
+# Node 5: Generate career insights
 def generate_insights(state: AgentState) -> dict:
     profile = state["candidate_profile"]
     all_missing = []
@@ -288,7 +295,7 @@ Common missing skills in market: {missing_skills}
     return {"insights": insights, "current_step": "complete"}
 
 
-# ── Build LangGraph ────────────────────────────────────────────────────────────
+# Build LangGraph
 def build_agent():
     graph = StateGraph(AgentState)
     graph.add_node("extract_profile", extract_profile)
