@@ -1,0 +1,224 @@
+import { useLocation, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import ScoreRing from "../components/ScoreRing";
+import InsightsSidebar from "../components/InsightsSidebar";
+
+function getBadgeClass(label) {
+  if (!label) return "badge-partial";
+  const l = label.toLowerCase();
+  if (l.includes("strong")) return "badge-strong";
+  if (l.includes("good"))   return "badge-good";
+  if (l.includes("partial"))return "badge-partial";
+  return "badge-weak";
+}
+
+function JobCard({ job }) {
+  const [tab, setTab] = useState("reason");
+  const tabs = [
+    { id: "reason",    label: "🎯 Match Reason" },
+    { id: "cover",     label: "✉️ Cover Letter" },
+    { id: "interview", label: "🎤 Interview Tips" },
+    { id: "skills",    label: "🧩 Skills Gap" },
+  ];
+
+  return (
+    <div className="job-card">
+      <div className="job-card-header">
+        <div className="score-ring-wrap">
+          <ScoreRing score={job.match_score || 0} />
+        </div>
+        <div className="job-title-block">
+          <h3>{job.title}</h3>
+          <div className="job-source">🔗 {job.source}</div>
+          <div className="job-badges">
+            <span className={`badge ${getBadgeClass(job.match_label)}`}>
+              {job.match_label || "Match"}
+            </span>
+            {job.ats_score && (
+              <span className="badge badge-ats">ATS {job.ats_score}%</span>
+            )}
+            {job.salary_estimate && (
+              <span className="badge badge-salary">💰 {job.salary_estimate}</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="job-tabs">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            className={`job-tab ${tab === t.id ? "active" : ""}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="job-tab-content">
+        {tab === "reason" && (
+          <>
+            <h4>Why it's a match</h4>
+            <p>{job.why_good || "This job aligns with your profile."}</p>
+            {job.why_not && (
+              <p style={{ color: "var(--muted)", marginTop: 8 }}>⚠️ {job.why_not}</p>
+            )}
+            <a className="job-link" href={job.url} target="_blank" rel="noreferrer">
+              View Job Posting ↗
+            </a>
+          </>
+        )}
+
+        {tab === "cover" && (
+          <>
+            <h4>Personalized Cover Letter Opening</h4>
+            <div className="cover-letter-box">
+              "{job.cover_letter_opening || "I am excited to apply for this role, as my experience aligns strongly with your requirements."}"
+            </div>
+            <p style={{ color: "var(--muted)", marginTop: 10, fontSize: ".8rem" }}>
+              💡 Use this as the opening paragraph of your cover letter.
+            </p>
+          </>
+        )}
+
+        {tab === "interview" && (
+          <>
+            <h4>Interview Preparation Tips</h4>
+            <ul className="tip-list">
+              {(job.interview_tips || ["Research the company thoroughly.", "Highlight your most relevant projects.", "Prepare questions about the team culture."]).map((tip, i) => (
+                <li key={i}>{tip}</li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        {tab === "skills" && (
+          <>
+            <h4>Skills You Have</h4>
+            <div className="skill-tags">
+              {(job.candidate_meets || []).map((s) => (
+                <span key={s} className="skill-tag has">✓ {s}</span>
+              ))}
+            </div>
+            {job.candidate_missing?.length > 0 && (
+              <>
+                <h4 style={{ marginTop: 16 }}>Skills to Develop</h4>
+                <div className="skill-tags">
+                  {job.candidate_missing.map((s) => (
+                    <span key={s} className="skill-tag miss">✗ {s}</span>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function Results() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const data = location.state;
+
+  const [filter, setFilter] = useState("all");
+  const [sort, setSort]     = useState("score");
+
+  if (!data) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 20 }}>
+        <p style={{ color: "var(--muted)" }}>No results found.</p>
+        <button className="btn-primary" onClick={() => navigate("/")}>← Go Back</button>
+      </div>
+    );
+  }
+
+  const { candidate, jobs = [], insights = {}, stats = {} } = data;
+
+  const filterMap = { all: null, strong: "Strong Match", good: "Good Match", partial: "Partial Match" };
+  let filtered = jobs.filter((j) =>
+    filter === "all" ? true : j.match_label === filterMap[filter]
+  );
+  if (sort === "score") filtered.sort((a, b) => (b.match_score || 0) - (a.match_score || 0));
+  if (sort === "ats")   filtered.sort((a, b) => (b.ats_score || 0)   - (a.ats_score || 0));
+
+  const avgScore = jobs.length
+    ? Math.round(jobs.reduce((s, j) => s + (j.match_score || 0), 0) / jobs.length)
+    : 0;
+
+  return (
+    <div className="results-page">
+      <nav className="navbar">
+        <div className="navbar-logo">
+          <span className="logo-icon">🎯</span>
+          <span className="gradient-text">JobScout AI</span>
+        </div>
+        <button className="btn-ghost" onClick={() => navigate("/")}>← New Search</button>
+      </nav>
+
+      <div className="results-hero">
+        <div className="candidate-info">
+          <p style={{ color: "var(--muted)", fontSize: ".85rem", marginBottom: 4 }}>Candidate Profile</p>
+          <h2>{candidate?.name || "Your Profile"}</h2>
+          <p className="gradient-text" style={{ fontWeight: 600 }}>{candidate?.current_role}</p>
+          <div className="candidate-meta">
+            {candidate?.location && <span className="meta-pill">📍 {candidate.location}</span>}
+            {candidate?.years_experience > 0 && (
+              <span className="meta-pill">🗓 {candidate.years_experience} yrs exp</span>
+            )}
+            {candidate?.email && <span className="meta-pill">✉️ {candidate.email}</span>}
+            {(candidate?.skills || []).slice(0, 4).map((s) => (
+              <span key={s} className="meta-pill">{s}</span>
+            ))}
+          </div>
+        </div>
+        <div className="stat-cards">
+          <div className="stat-card">
+            <span className="stat-num gradient-text">{jobs.length}</span>
+            <span className="stat-label">Jobs Found</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-num" style={{ color: "var(--green)" }}>{avgScore}%</span>
+            <span className="stat-label">Avg Match</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-num" style={{ color: "var(--cyan)" }}>{stats.queries_used || 0}</span>
+            <span className="stat-label">Queries Run</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="results-body">
+        <div>
+          <div className="controls">
+            <h3>🔎 Job Matches</h3>
+            <select className="filter-select" value={filter} onChange={(e) => setFilter(e.target.value)}>
+              <option value="all">All Jobs</option>
+              <option value="strong">Strong Match</option>
+              <option value="good">Good Match</option>
+              <option value="partial">Partial Match</option>
+            </select>
+            <select className="filter-select" value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="score">Sort: Match Score</option>
+              <option value="ats">Sort: ATS Score</option>
+            </select>
+          </div>
+
+          <div className="jobs-grid">
+            {filtered.length === 0 ? (
+              <p style={{ color: "var(--muted)", padding: 20 }}>No jobs match this filter.</p>
+            ) : (
+              filtered.map((job, i) => <JobCard key={i} job={job} />)
+            )}
+          </div>
+        </div>
+
+        <div className="insights-sidebar">
+          <InsightsSidebar insights={insights} candidate={candidate} />
+        </div>
+      </div>
+    </div>
+  );
+}

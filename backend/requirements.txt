@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+langchain
+langchain-groq
+langgraph
+tavily-python
+pymupdf
+python-docx
+python-multipart
+python-dotenv
+sse-starlette
