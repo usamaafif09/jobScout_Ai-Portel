@@ -117,13 +117,11 @@ def search_jobs(state: AgentState) -> dict:
                 url = r.get("url", "")
                 if url not in seen:
                     seen.add(url)
-                    # Use full raw content if available, otherwise fallback to snippet
                     full_text = r.get("raw_content") or r.get("content", "")
-                    
                     all_jobs.append({
                         "title": r.get("title", "Position"),
                         "url": url,
-                        "content": full_text[:12000],  # Get up to 12,000 chars of the full site
+                        "content": full_text[:12000],
                         "source": url.split("/")[2] if url else "Unknown",
                     })
         except Exception:
