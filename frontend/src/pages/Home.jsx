@@ -1,4 +1,10 @@
+import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
 import API_BASE_URL from "../api";
+
+const IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/bmp", "image/gif"];
+const isImage = (f) => f && IMAGE_TYPES.includes(f.type);
 
 const API = API_BASE_URL;
 
