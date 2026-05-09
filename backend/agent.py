@@ -67,7 +67,7 @@ def llm_call(prompt: str, retries: int = 3) -> str:
             err_str = str(e).lower()
             if "rate_limit" in err_str or "429" in err_str or "too many" in err_str:
                 wait = (attempt + 1) * 5  # 5s, 10s, 15s backoff
-                print(f"⏳ Rate limited, waiting {wait}s before retry {attempt+1}/{retries}...")
+                print(f"Rate limited, waiting {wait}s before retry {attempt+1}/{retries}...")
                 time.sleep(wait)
             else:
                 raise e
