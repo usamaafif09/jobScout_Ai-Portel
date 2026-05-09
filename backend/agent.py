@@ -133,7 +133,8 @@ def search_jobs(state: AgentState) -> dict:
 def evaluate_jobs(state: AgentState) -> dict:
     profile = state["candidate_profile"]
     evaluated = []
-    for job in state["raw_jobs"]:
+    # Cap evaluation to 8 jobs to prevent Groq Rate Limits (TPM/RPM)
+    for job in state["raw_jobs"][:8]:
         prompt = f"""You are a career expert. Evaluate this job vs candidate profile. Return ONLY valid JSON:
 {{
   "match_score": 85,
@@ -152,7 +153,7 @@ match_label must be one of: Strong Match, Good Match, Partial Match, Weak Match
 
 Candidate: {json.dumps(profile, indent=2)}
 Job Title: {job['title']}
-Job Content: {job['content']}
+Job Content: {job['content'][:3000]}
 """
         try:
             resp = llm.invoke([HumanMessage(content=prompt)])
