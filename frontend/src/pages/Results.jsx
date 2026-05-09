@@ -250,18 +250,46 @@ export default function Results() {
     );
   }
 
-  const { candidate, jobs = [], insights = {}, stats = {} } = data;
+  const { candidate, jobs: initialJobs = [], insights = {}, stats = {}, raw_jobs: initialRawJobs = [] } = data;
+
+  const [allJobs, setAllJobs] = useState(initialJobs);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const filterMap = { all: null, strong: "Strong Match", good: "Good Match", partial: "Partial Match" };
-  let filtered = jobs.filter((j) =>
+  let filtered = allJobs.filter((j) =>
     filter === "all" ? true : j.match_label === filterMap[filter]
   );
   if (sort === "score") filtered.sort((a, b) => (b.match_score || 0) - (a.match_score || 0));
   if (sort === "ats")   filtered.sort((a, b) => (b.ats_score || 0)   - (a.ats_score || 0));
 
-  const avgScore = jobs.length
-    ? Math.round(jobs.reduce((s, j) => s + (j.match_score || 0), 0) / jobs.length)
+  const avgScore = allJobs.length
+    ? Math.round(allJobs.reduce((s, j) => s + (j.match_score || 0), 0) / allJobs.length)
     : 0;
+
+  // Find remaining jobs that haven't been evaluated yet
+  const remainingRawJobs = initialRawJobs.filter(
+    (rj) => !allJobs.some((aj) => aj.url === rj.url)
+  );
+
+  const handleLoadMore = async () => {
+    if (remainingRawJobs.length === 0) return;
+    setLoadingMore(true);
+    // Take next 4 raw jobs to evaluate
+    const nextBatch = remainingRawJobs.slice(0, 4);
+    try {
+      const resp = await axios.post("http://localhost:8000/evaluate-batch", {
+        candidate,
+        jobs: nextBatch,
+      });
+      if (resp.data.success) {
+        setAllJobs((prev) => [...prev, ...resp.data.evaluated_jobs]);
+      }
+    } catch (err) {
+      alert("Could not load more jobs. Backend might be offline.");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   return (
     <div className="results-page">
@@ -328,6 +356,17 @@ export default function Results() {
               filtered.map((job, i) => <JobCard key={i} job={job} candidate={candidate} />)
             )}
           </div>
+
+          {remainingRawJobs.length > 0 && (
+            <button 
+              className="btn-primary" 
+              onClick={handleLoadMore} 
+              disabled={loadingMore} 
+              style={{ marginTop: 24, width: "100%", padding: 14, fontWeight: "bold", borderRadius: 8 }}
+            >
+              {loadingMore ? "🤖 AI Evaluating Next Batch..." : `✨ Load More Related Jobs (${remainingRawJobs.length} left)`}
+            </button>
+          )}
         </div>
 
         <div className="insights-sidebar">

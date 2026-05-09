@@ -130,11 +130,9 @@ def search_jobs(state: AgentState) -> dict:
 
 
 # ── Node 4: Evaluate & score each job ────────────────────────────────────────
-def evaluate_jobs(state: AgentState) -> dict:
-    profile = state["candidate_profile"]
+def evaluate_job_list(profile: dict, jobs: list) -> list:
     evaluated = []
-    # Cap evaluation to 8 jobs to prevent Groq Rate Limits (TPM/RPM)
-    for job in state["raw_jobs"][:8]:
+    for job in jobs:
         prompt = f"""You are a career expert. Evaluate this job vs candidate profile. Return ONLY valid JSON:
 {{
   "match_score": 85,
@@ -163,8 +161,14 @@ Job Content: {job['content'][:8000]}
                 evaluated.append({**job, **ev})
         except Exception:
             continue
-
     evaluated.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+    return evaluated
+
+def evaluate_jobs(state: AgentState) -> dict:
+    profile = state["candidate_profile"]
+    # Cap evaluation to 8 jobs initially to prevent Groq Rate Limits
+    jobs_to_eval = state["raw_jobs"][:8]
+    evaluated = evaluate_job_list(profile, jobs_to_eval)
     return {"evaluated_jobs": evaluated, "current_step": "jobs_evaluated"}
 
 

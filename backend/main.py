@@ -4,7 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from cv_parser import parse_cv
-from agent import run_agent, llm
+from cv_parser import parse_cv
+from agent import run_agent, llm, evaluate_job_list
 from langchain_core.messages import HumanMessage
 
 ALLOWED_EXTENSIONS = {
@@ -24,6 +25,10 @@ app.add_middleware(
 class AutoApplyRequest(BaseModel):
     candidate: dict
     job: dict
+
+class EvaluateBatchRequest(BaseModel):
+    candidate: dict
+    jobs: list
 
 SAMPLE_CV = """
 John Ahmed
@@ -85,6 +90,7 @@ async def analyze_cv(file: UploadFile = File(...)):
             "success": True,
             "candidate": result.get("candidate_profile", {}),
             "jobs": result.get("evaluated_jobs", []),
+            "raw_jobs": result.get("raw_jobs", []),
             "insights": result.get("insights", {}),
             "stats": {
                 "total_jobs_found": len(result.get("raw_jobs", [])),
@@ -105,6 +111,7 @@ async def analyze_sample():
             "success": True,
             "candidate": result.get("candidate_profile", {}),
             "jobs": result.get("evaluated_jobs", []),
+            "raw_jobs": result.get("raw_jobs", []),
             "insights": result.get("insights", {}),
             "stats": {
                 "total_jobs_found": len(result.get("raw_jobs", [])),
@@ -141,3 +148,15 @@ Make it sound like the candidate wrote it. Do not include placeholders like [You
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Apply error: {str(e)}")
+
+@app.post("/evaluate-batch")
+async def evaluate_batch(req: EvaluateBatchRequest):
+    """Evaluate a batch of raw jobs on demand for Load More feature."""
+    try:
+        evaluated = await asyncio.to_thread(evaluate_job_list, req.candidate, req.jobs)
+        return JSONResponse(content={
+            "success": True,
+            "evaluated_jobs": evaluated
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch evaluate error: {str(e)}")
