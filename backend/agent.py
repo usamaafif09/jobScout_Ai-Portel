@@ -141,6 +141,7 @@ def evaluate_jobs(state: AgentState) -> dict:
   "match_label": "Strong Match",
   "why_good": "2-3 sentence explanation of why this is a good match",
   "why_not": "1-2 sentence on gaps or concerns",
+  "short_summary": "A 2-3 sentence concise summary of the role, main responsibilities, and company.",
   "key_requirements": ["req1", "req2", "req3"],
   "candidate_meets": ["met_skill1", "met_skill2"],
   "candidate_missing": ["missing1", "missing2"],
